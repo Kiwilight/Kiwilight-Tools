@@ -1,0 +1,45 @@
+#! /usr/bin/python2
+
+import ldap, os, sys, re, getpass
+
+cookie = os.getenv('HOME') + '/.password'
+host = 'ldap://127.0.0.1:389/'
+
+with open('/etc/shells') as f: only = f.read()
+only = [ \
+  line.strip() for line in only.split("\n") ]
+only = [ line for line in only \
+  if line != '' and not re.match('#', line) ]
+
+length = len(sys.argv)
+
+error = 'Usage: %s [ shell ]' % sys.argv[0]
+if length > 1 and sys.argv[1] == '--help':
+  print error; sys.exit(1)
+elif length > 2: 
+  print error; sys.exit(1)
+
+error = '%s is not specified in /etc/shells'
+if length == 2 and sys.argv[1] not in only:
+  print error % ( sys.argv[1] ); sys.exit(1)
+
+binddn = 'cn=%s,ou=people,dc=kiwilight,dc=com'
+binddn = binddn % ( \
+  getpass.getuser().replace('.', ' ').title())
+
+try: passwd = open(cookie).read().strip()
+except IOError: passwd = getpass.getpass()
+
+connection = ldap.initialize(host)
+connection.simple_bind_s(binddn, passwd)
+
+if length == 2:
+  oper = ldap.MOD_REPLACE; shell = sys.argv[1]
+  connection.modify_s(binddn, [ \
+  ( ldap.MOD_REPLACE, 'loginShell', shell ) ])
+
+scope = ldap.SCOPE_BASE
+value = connection.search_s(binddn, scope)
+
+shell = value[0][1]['loginShell'][0]
+print 'Your shell is set to `%s`.' % ( shell )

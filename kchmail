@@ -1,0 +1,42 @@
+#! /usr/bin/python2
+
+import ldap, os, sys, re, getpass
+
+cookie = os.getenv('HOME') + '/.password'
+host = 'ldap://127.0.0.1:389/'
+
+e = '^[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,4}$'
+e = re.compile(e, re.IGNORECASE)
+
+length = len(sys.argv)
+
+error = 'Usage: %s [ shell ]' % sys.argv[0]
+if length > 1 and sys.argv[1] == '--help':
+  print error; sys.exit(1)
+elif length > 2: 
+  print error; sys.exit(1)
+
+error = '%s is not a valid RFC 2822 address'
+if length == 2 and not e.match(sys.argv[1]):
+  print error % ( sys.argv[1] ); sys.exit(1)
+
+binddn = 'cn=%s,ou=people,dc=kiwilight,dc=com'
+binddn = binddn % ( \
+  getpass.getuser().replace('.', ' ').title())
+
+try: passwd = open(cookie).read().strip()
+except IOError: passwd = getpass.getpass()
+
+connection = ldap.initialize(host)
+connection.simple_bind_s(binddn, passwd)
+
+if length == 2:
+  oper = ldap.MOD_REPLACE; mail = sys.argv[1]
+  connection.modify_s(binddn, [ \
+  ( ldap.MOD_REPLACE, 'mail', mail ) ])
+
+scope = ldap.SCOPE_BASE
+value = connection.search_s(binddn, scope)
+
+mail = value[0][1]['mail'][0]
+print "Your mail is set to '%s'." % ( mail )
