@@ -1,0 +1,99 @@
+#! /usr/bin/python2 -B
+
+import urllib2, ldap, re, copy
+
+SERVICE_URL = 'http://sourceware.org/git/?p=glibc.git;a=blob_plain;f=sunrpc/etc.rpc;hb=HEAD'
+
+BINDDN = 'cn=root,dc=kiwilight,dc=com'
+HOST = 'ldap://127.0.0.1:389/'
+with open('ldap.secret') as file:
+  password = file.read().strip()
+regexp = re.compile(r'\s+')
+
+handle = urllib2.urlopen(SERVICE_URL)
+remote = handle.read().split('\n')
+
+# Cut out comments and blank lines
+remote = [ l for l in remote if not l.startswith('#')
+  and not len(l) == 0 ]
+
+# Remove comments from lines
+remote = [ item[0 : item.index('#')].strip() if '#'
+  in item else item for item in remote ]
+
+# Split the line into three parts
+remote = [ regexp.split(line, 2) for line in remote ]
+
+def conform(line):
+  if len(line) > 2:
+    rpcn = [ i.strip() for i in regexp.split(line[2]) ]
+    rpcn = [ item for item in rpcn if line[0] != item ]
+    rpcn.insert(0, line[0])
+  else: rpcn = [ line[0] ]
+  text, pkid = rpcn[0].upper(), line[1].strip()
+  return dict(name
+    = rpcn[0], rpcn = rpcn, pkid = pkid, text = text)
+remote = [ conform(line) for line in remote ]
+
+handle = ldap.initialize(HOST)
+handle.simple_bind_s(BINDDN, password)
+
+def conform(item):
+  attr = 'oncRpcNumber'
+  pkid = item[1][attr][0]
+  attr = 'description'
+  text = item[1][attr][0]
+  rpcn = item[1]['cn']
+  return dict(name
+    = rpcn[0], rpcn = rpcn, pkid = pkid, text = text)
+
+BASE = 'ou=oncrpc,dc=kiwilight,dc=com'
+SCOPE = ldap.SCOPE_ONELEVEL
+FILTER = '(objectClass=oncRpc)'
+RDN = 'cn=%s,' + BASE
+
+record = handle.search_s(BASE, SCOPE, FILTER)
+record = [ conform(item) for item in record ]
+
+remote_name = [ i['name'] for i in remote ]
+record_name = [ i['name'] for i in record ]
+
+insert_name = [ i for
+  i in remote_name if i not in record_name ]
+delete_name = [ i for
+  i in record_name if i not in remote_name ]
+insert_list = [ i for
+  i in remote if i['name'] in insert_name ]
+delete_list = [ i for
+  i in record if i['name'] in delete_name ]
+update_list = [ i for i in remote if i not
+  in record and i['name'] not in insert_name ]
+
+def insert(handle, item):
+  print('Insert %(pkid)s = "%(name)s"' % item)
+  print(item)
+  l = [ ('objectClass', 'oncRpc') ]
+  l.append(('cn', item['rpcn']))
+  l.append(('oncRpcNumber', item['pkid']))
+  l.append(('description', item['text']))
+  name = ldap.dn.escape_dn_chars(item['name'])
+  return handle.add_s(RDN % name, l)
+
+def delete(handle, item):
+  print('Delete %(pkid)s = "%(name)s"' % item)
+  name = ldap.dn.escape_dn_chars(item['name'])
+  return handle.delete_s(RDN % name)
+
+def update(handle, item):
+  print('Update %(pkid)s = "%(name)s"' % item)
+  name = ldap.dn.escape_dn_chars(item['name'])
+  handle.delete_s(RDN % name)
+  l = [ ('objectClass', 'oncRpc') ]
+  l.append(('cn', item['rpcn']))
+  l.append(('oncRpcNumber', item['pkid']))
+  l.append(('description', item['text']))
+  return handle.add_s(RDN % name, l)
+
+for item in insert_list: insert(handle, item)
+for item in delete_list: delete(handle, item)
+for item in update_list: update(handle, item)
