@@ -129,6 +129,7 @@ record = [ conform(item) for item in record ]
 
 remote_code = [ (i['name'], i['port']) for i in remote ]
 record_code = [ (i['name'], i['port']) for i in record ]
+
 insert_code = [
   i for i in remote_code if i not in record_code ]
 delete_code = [
