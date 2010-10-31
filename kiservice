@@ -1,0 +1,174 @@
+#! /usr/bin/python2 -B
+
+import urllib2, ldap, re, copy
+
+SERVICE_URL = 'http://www.iana.org/assignments/port-numbers'
+
+BINDDN = 'cn=root,dc=kiwilight,dc=com'
+HOST = 'ldap://127.0.0.1:389/'
+with open('/etc/ldap.secret') as file:
+  password = file.read().strip()
+regexp = re.compile(r'\s+')
+
+handle = urllib2.urlopen(SERVICE_URL)
+remote = handle.read().split('\n')
+
+# Cut out the junk text and references
+# We want the two contiguous chunks
+
+remote1 = remote
+
+for index1 in xrange(0, len(remote1)):
+  line = remote1[index1]
+  if line.startswith('-----'): break
+remote1 = remote1[index1 + 1:]
+for index2 in xrange(0, len(remote1)):
+  line = remote1[index2]
+  if line.startswith('(*) I'): break
+remote1 = remote1[:index2 - 1]
+
+remote2 = remote[index1 + index2:]
+
+for index1 in xrange(0, len(remote2)):
+  line = remote2[index1]
+  if line.startswith('-----'): break
+remote2 = remote2[index1 + 1:]
+for index2 in xrange(0, len(remote2)):
+  line = remote2[index2]
+  if line.startswith('DYNAM'): break
+remote2 = remote2[:index2 - 1]
+
+remote = remote1 + remote2
+
+# Cut out comments and blank lines
+remote = [ l for l in remote if not l.startswith('#')
+  and not len(l) == 0 ]
+
+# Split the line into three parts
+remote = [ regexp.split(line, 2) for line in remote ]
+
+def conform(line):
+  text = line[2].strip() if len(line) == 3 else None
+  name = line[0].strip()
+
+  port = line[1].split('/')
+  meth = [ port[1] ] \
+    if len(port) == 2 else [ 'tcp', 'udp' ]
+  port = port[0]
+
+  return dict(
+  name = name, port = port, meth = meth, text = text)
+
+remote = [ conform(line) for line in remote ]
+remote = [
+  item for item in remote if len(item['name']) != 0 ]
+
+def make(line, **kwargs):
+  it = copy.copy(line); it.update(kwargs); return it
+
+def expand(line):
+  minimum, maximum = line['port'].split('-')
+  minimum, maximum = int(minimum), int(maximum)
+  port = range(minimum, maximum + 1)
+  port = [ str(i) for i in port ]
+  return [ make(line, port = i) for i in port ]
+
+# Expand each port range and typecast
+for line in [ j for j in remote if '-' in j['port'] ]:
+  remote.remove(line); remote.extend(expand(line))
+for line in remote: line['port'] = int(line['port'])
+
+# At this part each port should be an int
+# Port 0 means no official allocation
+remote = [ i for i in remote if i['port'] ]
+
+def conform(name, port):
+  line = [ item for item in remote if item['name'] ==
+    name and item['port'] == port ]
+
+  # We must form a case insensitive set
+  text = [ it['text'] for it in line if it['text'] ]
+  if len(text) > 1:
+    text = [ i for i in text if i != name.upper() ]
+  text = { it.lower(): it for it in reversed(text) }
+
+  attr = line.pop()
+  for it in line:
+    remote.remove(it); attr['meth'].extend(it['meth'])
+  attr['meth'] = list(set(attr['meth']))
+
+  attr['text'] = text.values() if len(text) else None
+  attr['port'] = str(port); return attr
+
+code = [ ( it['name'], it['port'] ) for it in remote ]
+remote = [ conform(it, ix) for it, ix in set(code) ]
+
+# We finally have the canonical representation
+
+handle = ldap.initialize(HOST)
+handle.simple_bind_s(BINDDN, password)
+
+def conform(item):
+  name = item[1]['cn'][0]
+  attr = 'ipServicePort'
+  port = item[1][attr][0]
+  attr = 'ipServiceProtocol'
+  meth = item[1][attr]
+  attr = 'description'
+  text = item[1][attr] if attr in item[1] else None
+  return dict(
+  name = name, port = port, meth = meth, text = text)
+
+BASE = 'ou=services,dc=kiwilight,dc=com'
+SCOPE = ldap.SCOPE_ONELEVEL
+FILTER = '(objectClass=ipService)'
+RDN = 'cn=%s+ipServicePort=%s,' + BASE
+
+record = handle.search_s(BASE, SCOPE, FILTER)
+record = [ conform(item) for item in record ]
+
+remote_code = [ (i['name'], i['port']) for i in remote ]
+record_code = [ (i['name'], i['port']) for i in record ]
+insert_code = [
+  i for i in remote_code if i not in record_code ]
+delete_code = [
+  i for i in record_code if i not in remote_code ]
+insert_list = [ i for
+  i in remote if (i['name'], i['port']) in insert_code ]
+delete_list = [ i for
+  i in record if (i['name'], i['port']) in delete_code ]
+update_list = [ i for i in remote if i not in
+  record and (i['name'], i['port']) not in insert_code ]
+
+def insert(handle, item):
+  print('Insert %(port)s = "%(name)s"' % item)
+  l = [ ('objectClass', 'ipService') ]
+  l.append(('ipServicePort', item['port']))
+  if len(item['text']):
+    l.append(('description', item['text']))
+  l.append(('ipServiceProtocol', item['meth']))
+  name = ldap.dn.escape_dn_chars(item['name'])
+  port = ldap.dn.escape_dn_chars(item['port'])
+  return handle.add_s(RDN % (name, port), l)
+
+def delete(handle, item):
+  print('Delete %(port)s = "%(name)s"' % item)
+  name = ldap.dn.escape_dn_chars(item['name'])
+  port = ldap.dn.escape_dn_chars(item['port'])
+  return handle.delete_s(RDN % (name, port))
+
+def update(handle, item):
+  print('Update %(port)s = "%(name)s"' % item)
+  name = ldap.dn.escape_dn_chars(item['name'])
+  port = ldap.dn.escape_dn_chars(item['port'])
+  handle.delete_s(RDN % (name, port))
+  l = [ ('objectClass', 'ipService') ]
+  l.append(('ipServicePort', item['port']))
+  if len(item['text']):
+    l.append(('description', item['text']))
+  l.append(('ipServiceProtocol', item['meth']))
+  return handle.add_s(RDN % (name, port), l)
+
+for item in insert_list: insert(handle, item)
+for item in delete_list: delete(handle, item)
+for item in update_list: update(handle, item)
