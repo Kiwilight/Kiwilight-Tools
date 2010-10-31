@@ -23,8 +23,8 @@ def extract(node, name, default = None):
   return node[0].firstChild.data.strip()
 
 def conform(node):
-  name = str(extract(node, 'name', 'None'))
-  name.replace(' ', '-')
+  name = str(extract(node, 'name', 'none'))
+  name = name.lower().replace(' ', '-')
   pkid = str(extract(node, 'value', -1))
   attr = 'description'
   text = str(extract(node, attr, 'None'))
@@ -36,7 +36,7 @@ remote = [ conform(item) for item in remote ]
 remote = [ item for
   item in remote if item['pkid'].isdigit() ]
 remote = [ item for
-  item in remote if item['name'] != 'None' ]
+  item in remote if item['name'] != 'none' ]
 
 handle = ldap.initialize(HOST)
 handle.simple_bind_s(BINDDN, password)
