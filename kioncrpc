@@ -6,7 +6,7 @@ SERVICE_URL = 'http://sourceware.org/git/?p=glibc.git;a=blob_plain;f=sunrpc/etc.
 
 BINDDN = 'cn=root,dc=kiwilight,dc=com'
 HOST = 'ldap://127.0.0.1:389/'
-with open('ldap.secret') as file:
+with open('/etc/ldap.secret') as file:
   password = file.read().strip()
 regexp = re.compile(r'\s+')
 
