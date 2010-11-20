@@ -1,8 +1,7 @@
 #! /usr/bin/python2
 
-import ldap, os, sys, re, getpass
+import ldap, ldap.sasl, sys, re
 
-cookie = os.getenv('HOME') + '/.password'
 host = 'ldap://127.0.0.1:389/'
 
 length = len(sys.argv)
@@ -13,31 +12,26 @@ if length > 1 and sys.argv[1] == '--help':
 elif length not in (1, 3):
   print error % ( sys.argv[0] ); sys.exit(1)
 
-binddn = 'cn=%s,ou=people,dc=kiwilight,dc=com'
-binddn = binddn % ( \
-  getpass.getuser().replace('.', ' ').title())
-
-try: passwd = open(cookie).read().strip()
-except IOError: passwd = getpass.getpass()
-
 connection = ldap.initialize(host)
-connection.simple_bind_s(binddn, passwd)
+gssapi = ldap.sasl.gssapi()
+connection.sasl_interactive_bind_s('', gssapi)
+rootdn = connection.whoami_s()[3:]
 
 if length == 3 and sys.argv[1] == 'insert':
   error = '%s is not a valid SSH public key'
   lpk = open(sys.argv[2], 'r').read()
   if not lpk.startswith('ssh-rsa'):
     print error % (sys.argv[2]); sys.exit(1)
-  connection.modify_s(binddn, \
+  connection.modify_s(rootdn, \
   [ ( ldap.MOD_ADD, 'sshPublicKey', lpk ) ])
 
 scope = ldap.SCOPE_BASE
-value = connection.search_s(binddn, scope)
+value = connection.search_s(rootdn, scope)
 
 if length == 3 and sys.argv[1] == 'delete':
   error = '%s is not a valid SSH public key'
 
-  value = connection.search_s(binddn, scope)
+  value = connection.search_s(rootdn, scope)
 
   i = int(sys.argv[2])
 
@@ -46,10 +40,10 @@ if length == 3 and sys.argv[1] == 'delete':
     print error % (sys.argv[2]); sys.exit(1)
 
   lpk = value[0][1]['sshPublicKey'][i]
-  connection.modify_s(binddn, [ \
+  connection.modify_s(rootdn, [ \
   ( ldap.MOD_DELETE, 'sshPublicKey', lpk )])
 
-  value = connection.search_s(binddn, scope)
+  value = connection.search_s(rootdn, scope)
 
 print 'You have no SSH public keys set.' \
   if 'sshPublicKey' not in value[0][1] \

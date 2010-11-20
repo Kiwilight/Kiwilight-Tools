@@ -1,8 +1,7 @@
 #! /usr/bin/python2
 
-import ldap, os, sys, re, getpass
+import ldap, ldap.sasl, sys, re
 
-cookie = os.getenv('HOME') + '/.password'
 host = 'ldap://127.0.0.1:389/'
 
 with open('/etc/shells') as f: only = f.read()
@@ -23,23 +22,18 @@ error = '%s is not specified in /etc/shells'
 if length == 2 and sys.argv[1] not in only:
   print error % ( sys.argv[1] ); sys.exit(1)
 
-binddn = 'cn=%s,ou=people,dc=kiwilight,dc=com'
-binddn = binddn % ( \
-  getpass.getuser().replace('.', ' ').title())
-
-try: passwd = open(cookie).read().strip()
-except IOError: passwd = getpass.getpass()
-
 connection = ldap.initialize(host)
-connection.simple_bind_s(binddn, passwd)
+gssapi = ldap.sasl.gssapi()
+connection.sasl_interactive_bind_s('', gssapi)
+rootdn = connection.whoami_s()[3:]
 
 if length == 2:
   oper = ldap.MOD_REPLACE; shell = sys.argv[1]
-  connection.modify_s(binddn, [ \
+  connection.modify_s(rootdn, [ \
   ( ldap.MOD_REPLACE, 'loginShell', shell ) ])
 
 scope = ldap.SCOPE_BASE
-value = connection.search_s(binddn, scope)
+value = connection.search_s(rootdn, scope)
 
 shell = value[0][1]['loginShell'][0]
 print 'Your shell is set to `%s`.' % ( shell )
