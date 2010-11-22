@@ -6,7 +6,7 @@ host = 'ldap://127.0.0.1:389/'
 
 length = len(sys.argv)
 
-error = 'Usage: %s insert file | delete index'
+error = 'Usage: %s insert file | remove index'
 if length > 1 and sys.argv[1] == '--help':
   print error % ( sys.argv[0] ); sys.exit(1)
 elif length not in (1, 3):
@@ -28,7 +28,7 @@ if length == 3 and sys.argv[1] == 'insert':
 scope = ldap.SCOPE_BASE
 value = connection.search_s(rootdn, scope)
 
-if length == 3 and sys.argv[1] == 'delete':
+if length == 3 and sys.argv[1] == 'remove':
   error = '%s is not a valid SSH public key'
 
   value = connection.search_s(rootdn, scope)
