@@ -1,0 +1,16 @@
+#! /bin/bash
+
+domain="$(hostname -d | sed -e 's:^:dc=:' -e 's:\.:,dc=:')"
+base="ou=people,$domain"
+
+if [ -z "$1" ]; then
+  echo "Usage: $0 (attr)"; exit 1
+fi
+
+result="$(ldapsearch -b "$base" "$1" 2> /dev/null | \
+  grep "^$1:" | \
+  awk '{ print $2 }' | \
+  sed 's:$:, :' | \
+  tr -d '\n' | \
+  sed 's:, $:\n:')"
+echo "$1: $result"
