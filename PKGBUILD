@@ -8,7 +8,7 @@ pkgver='0.0.2'
 pkgrel='1'
 arch=('any')
 license=()
-depends=('heimdal' 'expat' 'ca-certificates')
+depends=('python2-ldap')
 source=('kadlist' 'kchmail' 'kchlpk' 'kchshell')
 md5sums=('c097a547d32381888aa2e24d92fc6339'
          '5788f1289a0c2b62c6b4a588bb078ac5'
